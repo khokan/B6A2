@@ -33,6 +33,7 @@ const updateUser = async (name: string, email: string, phone: string, role: stri
 
 const deleteUser = async (id: number) => {
 
+  
     // 1️⃣ First check if user exists
   const existing = await pool.query(
     `SELECT id, name, email, phone, role 
@@ -45,24 +46,12 @@ const deleteUser = async (id: number) => {
     return null; // controller will send 404
   }
 
-
-   // 12. Prevent deletion if user has active bookings
-  const activeBookings = await pool.query(
-    `SELECT 1 FROM bookings WHERE customer_id=$1 AND status='active' LIMIT 1`,
-    [id]
-  );
-
-  if (activeBookings.rowCount! > 0) {
-    throw new AppError("User cannot be deleted while having active bookings", 400);
-  }
-  
-
   const result = await pool.query(`DELETE FROM users WHERE id = $1`, [id]);
 
   return result;
 };
 
 
-export const userServices = {
+export const userService = {
   getAllUserIntoDB, updateUser, deleteUser
 };
