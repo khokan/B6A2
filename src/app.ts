@@ -4,6 +4,7 @@ import { userRoutes } from "./modules/user/user.route";
 import { globalErrorHandler } from "./middleware/globalErrorHandler";
 import { AppError } from "./utils/AppError";
 import { HTTP } from "./utils/httpStatus";
+import { authRoutes } from "./modules/auth/auth.routes";
 
 
 const app = express();
@@ -15,8 +16,11 @@ app.use(express.json());
 // initializing DB
 initDataBase();
 
-// Users
+// auth
 app.use('/api/v1/users',userRoutes)
+
+// Users
+app.use('/api/v1/auth',authRoutes)
 
 
 // "/" -> localhost:5000/
@@ -35,5 +39,11 @@ app.use((req, res) => {
   });
 });
 
+// app.all("*", (req, res, next) => {
+//   next(new AppError(`Route not found: ${req.originalUrl}`, HTTP.NOT_FOUND));
+// });
+
+// This must be last:
+app.use(globalErrorHandler);
 
 export default app;

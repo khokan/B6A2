@@ -15,9 +15,8 @@ export const globalErrorHandler = (
   const statusCode = err.statusCode || HTTP.INTERNAL_ERROR;
   const message = err.message || "Internal Server Error";
 
-  return sendError(res, {
+  return sendError(res, 
     statusCode,
     message,
-    errors: err.errors || null,
-  });
+  );
 };
