@@ -107,10 +107,10 @@ src/
 ## 🌐 API Endpoints
 
 ### Authentication
-| Method | Endpoint | Access | Description |
-|--------|----------|--------|-------------|
-| POST | `/api/v1/auth/signup` | Public | Register new user account |
-| POST | `/api/v1/auth/signin` | Public | Login and receive JWT token |
+| Method | Endpoint              | Access | Description                 |
+|--------|---------------------- |--------|-------------                |
+| POST   | `/api/v1/auth/signup` | Public | Register new user account   |
+| POST   | `/api/v1/auth/signin` | Public | Login and receive JWT token |
 
 ---
 
