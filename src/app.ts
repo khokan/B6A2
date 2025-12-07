@@ -29,11 +29,10 @@ app.use('/api/v1/vehicles',vehicleRoutes)
 // bookings
 app.use('/api/v1/bookings',bookingRoutes)
 
-// "/" -> localhost:5000/
+// default root path
 app.get('/', (req: Request, res: Response)=> {
     res.status(200).json({
         Message : 'This is root route',
-        path: '/'
     })
 })
 
@@ -45,11 +44,8 @@ app.use((req, res) => {
   });
 });
 
-// app.all("*", (req, res, next) => {
-//   next(new AppError(`Route not found: ${req.originalUrl}`, HTTP.NOT_FOUND));
-// });
 
-// This must be last:
+// This must be last for other error
 app.use(globalErrorHandler);
 
 export default app;
