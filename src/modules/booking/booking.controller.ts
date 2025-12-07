@@ -6,9 +6,9 @@ import { bookingService } from "./booking.service";
 import { sendSuccess } from "../../utils/sendSuccess";
 
 
-// POST /api/v1/bookings  (auth required: customer/admin)
-// We'll use req.user.id as customerId
-export const createBooking = catchAsync(async (req: Request, res: Response) => {
+// POST /api/v1/bookings
+// Access: Customer or Admin
+ const createBooking = catchAsync(async (req: Request, res: Response) => {
   // @ts-ignore
   const currentUser = req.user;
 
@@ -16,18 +16,17 @@ export const createBooking = catchAsync(async (req: Request, res: Response) => {
     return sendError(res, 401, "Unauthorized");
   }
 
-  const { vehicleId, rentStartDate, rentEndDate } = req.body;
+  const { vehicle_id:vehicleId, rent_start_date: rentStartDate, rent_end_date:rentEndDate } = req.body;
 
   if (!vehicleId || !rentStartDate || !rentEndDate) {
     return sendError(res, 400, "vehicleId, rentStartDate and rentEndDate are required");
   }
 
-  const idNum = Number(vehicleId);
-  if (!idNum || Number.isNaN(idNum)) {
+  const vehicleIdNum = Number(vehicleId);
+  if (!vehicleIdNum || Number.isNaN(vehicleIdNum)) {
     return sendError(res, 400, "Invalid vehicleId");
   }
 
-  // Basic date validation – detailed logic is inside service
   if (new Date(rentEndDate) <= new Date(rentStartDate)) {
     return sendError(res, 400, "rent_end_date must be after rent_start_date");
   }
@@ -35,7 +34,7 @@ export const createBooking = catchAsync(async (req: Request, res: Response) => {
   try {
     const booking = await bookingService.createBooking({
       customerId: currentUser.id,
-      vehicleId: idNum,
+      vehicleId: vehicleIdNum,
       rentStartDate,
       rentEndDate,
     });
@@ -46,85 +45,73 @@ export const createBooking = catchAsync(async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/v1/bookings  (admin only, or adapt as you like)
-export const getAllBookings = catchAsync(async (req: Request, res: Response) => {
-  const bookings = await bookingService.getAllBookings();
-  return sendSuccess(res, bookings, 200, "Bookings retrieved successfully");
-});
-
-// GET /api/v1/bookings/:bookingId
-export const getBookingById = catchAsync(async (req: Request, res: Response) => {
-  const id = Number(req.params.bookingId);
-
-  if (!id || Number.isNaN(id)) {
-    return sendError(res, 400, "Invalid booking ID");
-  }
-
-  const booking = await bookingService.getBookingById(id);
-
-  if (!booking) {
-    return sendError(res, 404, "Booking not found");
-  }
-
-  // OPTIONAL: Only owner or admin can see booking
+// GET /api/v1/bookings
+// Access: Role-based
+// Admin: all bookings
+// Customer: own bookings
+ const getBookings = catchAsync(async (req: Request, res: Response) => {
   // @ts-ignore
   const currentUser = req.user;
-  if (currentUser && currentUser.role === "customer" && currentUser.id !== booking.customerId) {
-    return sendError(res, 403, "Forbidden: You cannot access this booking");
+
+  if (!currentUser) {
+    return sendError(res, 401, "Unauthorized");
   }
 
-  return sendSuccess(res, booking, 200, "Booking retrieved successfully");
+  if (currentUser.role === "admin") {
+    const bookings = await bookingService.getAllBookings();
+    return sendSuccess(res, bookings, 200, "Bookings retrieved successfully");
+  }
+
+  const bookings = await bookingService.getBookingsByCustomer(currentUser.id);
+  return sendSuccess(res, bookings, 200, "Your bookings retrieved successfully");
 });
 
-// PATCH /api/v1/bookings/:bookingId/status   (admin or owner, your choice)
-export const updateBookingStatus = catchAsync(async (req: Request, res: Response) => {
-  const id = Number(req.params.bookingId);
-  const { status } = req.body;
+// PUT /api/v1/bookings/:bookingId
+// Role-based:
+// - Customer: cancel booking (before start date only)
+// - Admin: mark as "returned" (vehicle -> available)
+ const updateBooking = catchAsync(async (req: Request, res: Response) => {
+  const bookingId = Number(req.params.bookingId);
 
-  if (!id || Number.isNaN(id)) {
+  if (!bookingId || Number.isNaN(bookingId)) {
     return sendError(res, 400, "Invalid booking ID");
   }
 
-  if (!status || !["active", "cancelled", "returned"].includes(status)) {
-    return sendError(res, 400, "Invalid booking status");
+  // @ts-ignore
+  const currentUser = req.user;
+
+  if (!currentUser) {
+    return sendError(res, 401, "Unauthorized");
   }
 
-  const updated = await bookingService.updateBookingStatus(id, status);
+  // Customer: cancel
+  if (currentUser.role === "customer") {
+    try {
+      const updated = await bookingService.cancelBookingByCustomer(
+        bookingId,
+        currentUser.id
+      );
 
-  if (!updated) {
-    return sendError(res, 404, "Booking not found");
+      return sendSuccess(res, updated, 200, "Booking cancelled successfully");
+    } catch (err: any) {
+      return sendError(res, 400, err.message || "Failed to cancel booking");
+    }
   }
 
-  return sendSuccess(res, updated, 200, "Booking status updated successfully");
-});
+  // Admin: mark as returned
+  if (currentUser.role === "admin") {
+    try {
+      const updated = await bookingService.markBookingReturnedByAdmin(bookingId);
 
-// DELETE /api/v1/bookings/:bookingId (optional, depends on your business rule)
-export const deleteBooking = catchAsync(async (req: Request, res: Response) => {
-  const id = Number(req.params.bookingId);
-
-  if (!id || Number.isNaN(id)) {
-    return sendError(res, 400, "Invalid booking ID");
+      return sendSuccess(res, updated, 200, "Booking marked as returned");
+    } catch (err: any) {
+      return sendError(res, 400, err.message || "Failed to update booking");
+    }
   }
 
-  const booking = await bookingService.getBookingById(id);
-
-  if (!booking) {
-    return sendError(res, 404, "Booking not found");
-  }
-
-  if (booking.status === "active") {
-    return sendError(res, 400, "Active bookings cannot be deleted");
-  }
-
-  const deleted = await bookingService.deleteBooking(id);
-
-  if (!deleted) {
-    return sendError(res, 404, "Booking not found");
-  }
-
-  return sendSuccess(res, null, 200, "Booking deleted successfully");
+  return sendError(res, 403, "Forbidden: Invalid role");
 });
 
 export const bookingController = {
-  createBooking,getAllBookings,getBookingById,updateBookingStatus,deleteBooking
+  createBooking,getBookings,updateBooking
 };

@@ -1,5 +1,4 @@
 // src/services/booking.service.ts
-
 import { pool } from "../../database/db";
 
 
@@ -12,7 +11,8 @@ export interface CreateBookingInput {
   rentEndDate: string;   // 'YYYY-MM-DD'
 }
 
-export const createBooking = async (payload: CreateBookingInput) => {
+// Create booking: validates vehicle & calculates total price
+const createBooking = async (payload: CreateBookingInput) => {
   const { customerId, vehicleId, rentStartDate, rentEndDate } = payload;
 
   // 1️⃣ Get vehicle & ensure available
@@ -35,7 +35,7 @@ export const createBooking = async (payload: CreateBookingInput) => {
     throw new Error("Vehicle is not available for booking");
   }
 
-  // 2️⃣ Compute rental days and total_price
+  // 2️⃣ Compute rental days and total price
   const start = new Date(rentStartDate);
   const end = new Date(rentEndDate);
 
@@ -48,7 +48,8 @@ export const createBooking = async (payload: CreateBookingInput) => {
 
   const totalPrice = days * Number(vehicle.daily_rent_price);
 
-  // 3️⃣ Insert booking
+
+  // 3️⃣ Insert booking as 'active'
   const bookingResult = await pool.query(
     `
     INSERT INTO bookings (
@@ -62,11 +63,11 @@ export const createBooking = async (payload: CreateBookingInput) => {
     VALUES ($1, $2, $3, $4, $5, 'active')
     RETURNING
       id,
-      customer_id        AS "customerId",
-      vehicle_id         AS "vehicleId",
-      rent_start_date    AS "rentStartDate",
-      rent_end_date      AS "rentEndDate",
-      total_price        AS "totalPrice",
+      customer_id      AS "customerId",
+      vehicle_id       AS "vehicleId",
+      rent_start_date  AS "rentStartDate",
+      rent_end_date    AS "rentEndDate",
+      total_price      AS "totalPrice",
       status;
     `,
     [customerId, vehicleId, rentStartDate, rentEndDate, totalPrice]
@@ -85,16 +86,17 @@ export const createBooking = async (payload: CreateBookingInput) => {
   return bookingResult.rows[0];
 };
 
-export const getAllBookings = async () => {
+// Admin: all bookings
+const getAllBookings = async () => {
   const result = await pool.query(
     `
     SELECT
       id,
-      customer_id      AS "customerId",
-      vehicle_id       AS "vehicleId",
-      rent_start_date  AS "rentStartDate",
-      rent_end_date    AS "rentEndDate",
-      total_price      AS "totalPrice",
+      customer_id,
+      vehicle_id,
+      rent_start_date,
+      rent_end_date,
+      total_price,
       status
     FROM bookings
     ORDER BY id ASC;
@@ -104,7 +106,28 @@ export const getAllBookings = async () => {
   return result.rows;
 };
 
-export const getBookingById = async (id: number) => {
+// Customer: own bookings
+const getBookingsByCustomer = async (customerId: number) => {
+  const result = await pool.query(
+    `
+    SELECT
+      id,
+      vehicle_id,
+      rent_start_date,
+      rent_end_date,
+      total_price::INTEGER AS total_price,
+      status
+    FROM bookings
+    WHERE customer_id = $1
+    ORDER BY id ASC;
+    `,
+    [customerId]
+  );
+
+  return result.rows;
+};
+
+const getBookingById = async (id: number) => {
   const result = await pool.query(
     `
     SELECT
@@ -124,60 +147,34 @@ export const getBookingById = async (id: number) => {
   return result.rows[0] || null;
 };
 
-export const updateBookingStatus = async (id: number, status: BookingStatus) => {
-  // Get booking to know vehicle_id
-  const bookingResult = await pool.query(
-    `
-    SELECT id, vehicle_id, status
-    FROM bookings
-    WHERE id = $1;
-    `,
-    [id]
-  );
+// Customer cancel (only before start date, only own booking, only if active)
+const cancelBookingByCustomer = async (bookingId: number, customerId: number) => {
+  const booking = await getBookingById(bookingId);
 
-  if (bookingResult.rowCount === 0) {
-    return null;
+  if (!booking) {
+    throw new Error("Booking not found");
   }
 
-  const booking = bookingResult.rows[0];
+  if (booking.customerId !== customerId) {
+    throw new Error("You are not allowed to cancel this booking");
+  }
+
+  if (booking.status !== "active") {
+    throw new Error("Only active bookings can be cancelled");
+  }
+
+  const now = new Date();
+  const startDate = new Date(booking.rentStartDate);
+
+  if (now >= startDate) {
+    throw new Error("Booking can only be cancelled before start date");
+  }
 
   // Update booking status
-  const updatedResult = await pool.query(
-    `
-    UPDATE bookings
-    SET status = $1
-    WHERE id = $2
-    RETURNING
-      id,
-      customer_id      AS "customerId",
-      vehicle_id       AS "vehicleId",
-      rent_start_date  AS "rentStartDate",
-      rent_end_date    AS "rentEndDate",
-      total_price      AS "totalPrice",
-      status;
-    `,
-    [status, id]
-  );
-
-  // If booking is no longer active, free the vehicle
-  if (status === "cancelled" || status === "returned") {
-    await pool.query(
-      `
-      UPDATE vehicles
-      SET availability_status = 'available', updated_at = NOW()
-      WHERE id = $1;
-      `,
-      [booking.vehicle_id]
-    );
-  }
-
-  return updatedResult.rows[0];
-};
-
-export const deleteBooking = async (id: number) => {
   const result = await pool.query(
     `
-    DELETE FROM bookings
+    UPDATE bookings
+    SET status = 'cancelled'
     WHERE id = $1
     RETURNING
       id,
@@ -188,16 +185,66 @@ export const deleteBooking = async (id: number) => {
       total_price      AS "totalPrice",
       status;
     `,
-    [id]
+    [bookingId]
   );
 
-  if (result.rowCount === 0) return null;
+  // Free vehicle
+  await pool.query(
+    `
+    UPDATE vehicles
+    SET availability_status = 'available', updated_at = NOW()
+    WHERE id = $1;
+    `,
+    [booking.vehicleId]
+  );
 
   return result.rows[0];
 };
 
-// Helpers used by User / Vehicle modules:
-const userHasActiveBookings = async (userId: number): Promise<boolean> => {
+// Admin marks booking as returned (frees vehicle)
+ const markBookingReturnedByAdmin = async (bookingId: number) => {
+  const booking = await getBookingById(bookingId);
+
+  if (!booking) {
+    throw new Error("Booking not found");
+  }
+
+  if (booking.status !== "active") {
+    throw new Error("Only active bookings can be marked as returned");
+  }
+
+  const result = await pool.query(
+    `
+    UPDATE bookings
+    SET status = 'returned'
+    WHERE id = $1
+    RETURNING
+      id,
+      customer_id      AS "customerId",
+      vehicle_id       AS "vehicleId",
+      rent_start_date  AS "rentStartDate",
+      rent_end_date    AS "rentEndDate",
+      total_price      AS "totalPrice",
+      status;
+    `,
+    [bookingId]
+  );
+
+  // Free vehicle
+  await pool.query(
+    `
+    UPDATE vehicles
+    SET availability_status = 'available', updated_at = NOW()
+    WHERE id = $1;
+    `,
+    [booking.vehicleId]
+  );
+
+  return result.rows[0];
+};
+
+// For user/vehicle delete checks
+ const userHasActiveBookings = async (userId: number): Promise<boolean> => {
   const result = await pool.query(
     `
     SELECT 1 FROM bookings
@@ -208,8 +255,8 @@ const userHasActiveBookings = async (userId: number): Promise<boolean> => {
   );
   return result.rowCount! > 0;
 };
- 
-const vehicleHasActiveBookings = async (vehicleId: number): Promise<boolean> => {
+
+ const vehicleHasActiveBookings = async (vehicleId: number): Promise<boolean> => {
   const result = await pool.query(
     `
     SELECT 1 FROM bookings
@@ -221,6 +268,27 @@ const vehicleHasActiveBookings = async (vehicleId: number): Promise<boolean> => 
   return result.rowCount! > 0;
 };
 
+// (Optional) System job: auto-return after end date
+ const autoReturnFinishedBookings = async () => {
+  // Mark all active bookings whose rent_end_date < today as returned
+  await pool.query(
+    `
+    WITH updated AS (
+      UPDATE bookings
+      SET status = 'returned'
+      WHERE status = 'active'
+        AND rent_end_date < CURRENT_DATE
+      RETURNING vehicle_id
+    )
+    UPDATE vehicles v
+    SET availability_status = 'available', updated_at = NOW()
+    FROM updated u
+    WHERE v.id = u.vehicle_id;
+    `
+  );
+};
+
 export const bookingService = {
-  createBooking, getAllBookings, getBookingById, updateBookingStatus, deleteBooking, vehicleHasActiveBookings,userHasActiveBookings
+  createBooking, getAllBookings, getBookingsByCustomer, getBookingById, cancelBookingByCustomer,markBookingReturnedByAdmin,
+  userHasActiveBookings, vehicleHasActiveBookings, autoReturnFinishedBookings
 };

@@ -6,6 +6,7 @@ import { AppError } from "./utils/AppError";
 import { HTTP } from "./utils/httpStatus";
 import { authRoutes } from "./modules/auth/auth.routes";
 import { vehicleRoutes } from "./modules/vehicle/vehicle.route";
+import { bookingRoutes } from "./modules/booking/booking.route";
 
 
 const app = express();
@@ -20,11 +21,14 @@ initDataBase();
 // auth
 app.use('/api/v1/users',userRoutes)
 
-// Users
+// users
 app.use('/api/v1/auth',authRoutes)
 
-// Users
+// vehicles
 app.use('/api/v1/vehicles',vehicleRoutes)
+
+// bookings
+app.use('/api/v1/bookings',bookingRoutes)
 
 // "/" -> localhost:5000/
 app.get('/', (req: Request, res: Response)=> {

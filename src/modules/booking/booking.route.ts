@@ -2,21 +2,16 @@ import { Router } from "express";
 import auth from "../../middleware/auth";
 import { bookingController } from "./booking.controller";
 
+
 const router = Router();
 
-// Customer/Admin can create booking (using own user id)
+// POST /api/v1/bookings - Customer or Admin
 router.post("/", auth("admin", "customer"), bookingController.createBooking);
 
-// Admin only - view all bookings
-router.get("/", auth("admin"), bookingController.getAllBookings);
+// GET /api/v1/bookings - Role-based
+router.get("/", auth("admin", "customer"), bookingController.getBookings);
 
-// Admin or logged-in user – your choice
-router.get("/:bookingId", auth("admin", "customer"), bookingController.getBookingById);
+// PUT /api/v1/bookings/:bookingId - Role-based
+router.put("/:bookingId", auth("admin", "customer"), bookingController.updateBooking);
 
-// Admin can update status (or you allow customer to cancel own booking)
-router.patch("/:bookingId/status", auth("admin"), bookingController.updateBookingStatus);
-
-// Admin only - delete non-active bookings
-router.delete("/:bookingId", auth("admin"), bookingController.deleteBooking);
-
-export default router;
+export const bookingRoutes = router;
