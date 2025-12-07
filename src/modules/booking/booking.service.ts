@@ -63,11 +63,11 @@ const createBooking = async (payload: CreateBookingInput) => {
     VALUES ($1, $2, $3, $4, $5, 'active')
     RETURNING
       id,
-      customer_id      AS "customerId",
-      vehicle_id       AS "vehicleId",
-      rent_start_date  AS "rentStartDate",
-      rent_end_date    AS "rentEndDate",
-      total_price      AS "totalPrice",
+      customer_id ,
+      vehicle_id ,
+      DATE(rent_start_date)::TEXT,
+      DATE(rent_end_date)::TEXT,
+      total_price::INTEGER,
       status;
     `,
     [customerId, vehicleId, rentStartDate, rentEndDate, totalPrice]
@@ -90,47 +90,95 @@ const createBooking = async (payload: CreateBookingInput) => {
 const getAllBookings = async () => {
   const result = await pool.query(
     `
-    SELECT
-      id,
-      customer_id,
-      vehicle_id,
-      rent_start_date,
-      rent_end_date,
-      total_price,
-      status
-    FROM bookings
-    ORDER BY id ASC;
+    SELECT 
+      b.id,
+      b.customer_id,
+      b.vehicle_id,
+     DATE(b.rent_start_date)::TEXT,
+      DATE(b.rent_end_date)::TEXT,
+      b.total_price::INTEGER,
+      b.status,
+
+      u.name AS customer_name,
+      u.email AS customer_email,
+
+      v.vehicle_name,
+      v.registration_number
+
+    FROM bookings b
+    JOIN users u ON b.customer_id = u.id
+    JOIN vehicles v ON b.vehicle_id = v.id
+    ORDER BY b.id ASC;
     `
   );
 
-  return result.rows;
+// Format the nested structure EXACTLY as you want
+  return result.rows.map((row) => ({
+    id: row.id,
+    customer_id: row.customer_id,
+    vehicle_id: row.vehicle_id,
+    rent_start_date: row.rent_start_date,
+    rent_end_date: row.rent_end_date,
+    total_price: row.total_price,
+    status: row.status,
+
+   customer: {
+    name: row.customer_name,
+    email: row.customer_email,
+  },
+
+  vehicle: {
+    vehicle_name: row.vehicle_name,
+    registration_number: row.registration_number,
+  },
+  }));
 };
 
 // Customer: own bookings
 const getBookingsByCustomer = async (customerId: number) => {
   const result = await pool.query(
-    `
-    SELECT
-      id,
-      vehicle_id,
-      rent_start_date,
-      rent_end_date,
-      total_price::INTEGER AS total_price,
-      status
-    FROM bookings
-    WHERE customer_id = $1
-    ORDER BY id ASC;
+      `
+   SELECT
+      b.id,
+      b.vehicle_id,
+      DATE(b.rent_start_date)::TEXT AS rent_start_date,
+      DATE(b.rent_end_date)::TEXT   AS rent_end_date,
+      b.total_price::INTEGER        AS total_price,
+      b.status,
+
+      v.vehicle_name,
+      v.registration_number,
+      v.type
+
+    FROM bookings b
+    JOIN vehicles v ON b.vehicle_id = v.id
+    WHERE b.customer_id = $1
+    ORDER BY b.id ASC;
     `,
     [customerId]
   );
 
-  return result.rows;
+   return result.rows.map((row) => ({
+    id: row.id,
+    vehicle_id: row.vehicle_id,
+    rent_start_date: row.rent_start_date,
+    rent_end_date: row.rent_end_date,
+    total_price: row.total_price,
+    status: row.status,
+
+    // Nested vehicle object
+    vehicle: {
+      vehicle_name: row.vehicle_name,
+      registration_number: row.registration_number,
+      type: row.type,
+    },
+  }));
 };
 
 const getBookingById = async (id: number) => {
   const result = await pool.query(
     `
-    SELECT
+     SELECT
       id,
       customer_id      AS "customerId",
       vehicle_id       AS "vehicleId",
@@ -178,11 +226,11 @@ const cancelBookingByCustomer = async (bookingId: number, customerId: number) =>
     WHERE id = $1
     RETURNING
       id,
-      customer_id      AS "customerId",
-      vehicle_id       AS "vehicleId",
-      rent_start_date  AS "rentStartDate",
-      rent_end_date    AS "rentEndDate",
-      total_price      AS "totalPrice",
+      customer_id,
+      vehicle_id,
+      DATE(rent_start_date)::TEXT AS rent_start_date,
+      DATE(rent_end_date)::TEXT AS rent_end_date,
+      total_price::INTEGER AS total_price,
       status;
     `,
     [bookingId]
@@ -213,34 +261,37 @@ const cancelBookingByCustomer = async (bookingId: number, customerId: number) =>
     throw new Error("Only active bookings can be marked as returned");
   }
 
-  const result = await pool.query(
+  const bookingResult = await pool.query(
     `
     UPDATE bookings
     SET status = 'returned'
     WHERE id = $1
     RETURNING
       id,
-      customer_id      AS "customerId",
-      vehicle_id       AS "vehicleId",
-      rent_start_date  AS "rentStartDate",
-      rent_end_date    AS "rentEndDate",
-      total_price      AS "totalPrice",
+      customer_id,
+      vehicle_id,
+       DATE(rent_start_date)::TEXT AS rent_start_date,
+       DATE(rent_end_date)::TEXT AS rent_end_date,
+      total_price::INTEGER AS total_price,
       status;
     `,
     [bookingId]
   );
 
   // Free vehicle
-  await pool.query(
+  const vehicleResult = await pool.query(
     `
     UPDATE vehicles
     SET availability_status = 'available', updated_at = NOW()
-    WHERE id = $1;
+    WHERE id = $1
+    RETURNING availability_status;
     `,
     [booking.vehicleId]
   );
 
-  return result.rows[0];
+  return {
+    ...bookingResult.rows[0], vehicle: vehicleResult.rows[0]
+  }
 };
 
 // For user/vehicle delete checks

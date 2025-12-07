@@ -2,11 +2,10 @@ import express, { Request, Response } from "express";
 import initDataBase from "./database/db";
 import { userRoutes } from "./modules/user/user.route";
 import { globalErrorHandler } from "./middleware/globalErrorHandler";
-import { AppError } from "./utils/AppError";
-import { HTTP } from "./utils/httpStatus";
 import { authRoutes } from "./modules/auth/auth.routes";
 import { vehicleRoutes } from "./modules/vehicle/vehicle.route";
 import { bookingRoutes } from "./modules/booking/booking.route";
+import './jobs/bookingCron'
 
 
 const app = express();

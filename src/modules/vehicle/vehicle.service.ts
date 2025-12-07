@@ -132,7 +132,7 @@ export const updateVehicle = async (id: number, payload: UpdateVehicleInput) => 
       vehicle_name,
       type,
       registration_number,
-      daily_rent_price,
+      daily_rent_price::integer,
       availability_status;
     `,
     values

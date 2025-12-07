@@ -103,7 +103,7 @@ import { sendSuccess } from "../../utils/sendSuccess";
     try {
       const updated = await bookingService.markBookingReturnedByAdmin(bookingId);
 
-      return sendSuccess(res, updated, 200, "Booking marked as returned");
+      return sendSuccess(res, updated, 200, "Booking marked as returned. Vehicle is now available");
     } catch (err: any) {
       return sendError(res, 400, err.message || "Failed to update booking");
     }

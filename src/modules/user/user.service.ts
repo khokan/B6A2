@@ -1,6 +1,5 @@
 import bcrypt from "bcryptjs";
 import { pool } from "../../database/db";
-import { AppError } from "../../utils/AppError";
 
 const getAllUserIntoDB = async () => {
   const result = await pool.query(

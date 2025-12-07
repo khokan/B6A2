@@ -128,7 +128,7 @@ export const deleteVehicle = catchAsync(async (req: Request, res: Response) => {
     return sendError(
       res,
       400,
-      "Vehicle cannot be deleted while active bookings exist"
+      "Vehicle cannot be deleted while active bookings"
     );
   }
 
